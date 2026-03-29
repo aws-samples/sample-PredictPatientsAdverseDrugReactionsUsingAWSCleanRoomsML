@@ -320,7 +320,7 @@ flowchart TB
 
 > **NLP Pre-processing (out of scope for this demo):** In a real deployment, the pharma company would run spontaneous ADR report narratives through [Amazon Comprehend Medical](https://aws.amazon.com/comprehend/medical/) and the health insurer would run clinical notes through Amazon Comprehend Medical and patient-clinician conversation recordings through [AWS HealthScribe](https://aws.amazon.com/healthscribe/) before contributing data to the collaboration. The synthetic data generator simulates the structured output of this pre-processing step.
 
-> **Optional — QuickSight Dashboard (Step 6):** Your `AWS_REGION` must be a region where Amazon QuickSight is available. QuickSight, Athena, Glue, and S3 must all be in the same region. Supported regions include `us-east-1`, `us-east-2`, `us-west-2`, `eu-west-1`, `eu-west-2`, `eu-central-1`, `eu-north-1`, `ap-northeast-1`, `ap-southeast-1`, `ap-southeast-2`, `ap-south-1`, and others. See the [full list](https://docs.aws.amazon.com/quicksight/latest/user/regions-qs.html). Also set `QS_NOTIFICATION_EMAIL` in `config.py` — this is required for QuickSight account registration.
+> **QuickSight Dashboard (Step 6):** Your `AWS_REGION` must be a region where Amazon QuickSight is available. QuickSight, Athena, Glue, and S3 must all be in the same region. Supported regions include `us-east-1`, `us-east-2`, `us-west-2`, `eu-west-1`, `eu-west-2`, `eu-central-1`, `eu-north-1`, `ap-northeast-1`, `ap-southeast-1`, `ap-southeast-2`, `ap-south-1`, and others. See the [full list](https://docs.aws.amazon.com/quicksight/latest/user/regions-qs.html). Also set `QS_NOTIFICATION_EMAIL` in `config.py` — this is required for QuickSight account registration.
 
 ### Step 0: Configure Your Account
 
@@ -329,7 +329,7 @@ Edit `config.py` and set your values:
 ```python
 AWS_ACCOUNT_ID        = "123456789012"   # Your 12-digit AWS account ID
 AWS_REGION            = "us-east-1"      # Your preferred region
-QS_NOTIFICATION_EMAIL = "your@email.com" # Optional: only needed for Step 6 (QuickSight)
+QS_NOTIFICATION_EMAIL = "your@email.com" # Required for Step 6 (QuickSight)
 ```
 
 All scripts read from this single file — no other hardcoded values to change.
@@ -513,9 +513,9 @@ scripts/
   build_and_push.py               ← Build containers via local Docker
   setup_cleanrooms.py             ← Create Glue, IAM, collaboration, ML config
   run_cleanrooms_ml.py            ← Create channels, train model, run inference
-  create_dashboard.py             ← Optional: create QuickSight dashboard (Step 6)
+  create_dashboard.py             ← Create QuickSight dashboard (Step 6)
   test_training_local.py          ← Test training locally (no AWS needed)
-  sagemaker_training_job.py       ← Optional: run training via SageMaker directly
+  sagemaker_training_job.py       ← Run training via SageMaker directly (alternative to Step 5)
   undeploy.py                     ← Delete all demo resources (reverse of setup)
 img/
   dashboard-score-distribution.png
