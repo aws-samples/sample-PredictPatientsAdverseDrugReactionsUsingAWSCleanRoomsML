@@ -1,0 +1,39 @@
+# FSI reference file — kept locally but not pushed to git
+README-FSI.md
+
+# Temporary helper scripts
+_write_dashboard.py
+_write_setup.py
+
+# Legacy zip archive
+fsicleanroomdemo.zip
+
+# Security scan reports
+ash-security-scan-report.md
+
+# ASH config
+.ash/
+
+# Local test artifacts
+local_test/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Generated data files
+data/*.csv
+
+# Run ID (auto-generated, account-specific)
+.run_id
+
+# Environment
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
