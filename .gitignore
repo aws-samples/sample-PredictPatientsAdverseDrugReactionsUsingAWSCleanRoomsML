@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # FSI reference file — kept locally but not pushed to git
 README-FSI.md
 
@@ -37,3 +38,7 @@ data/*.csv
 # OS
 .DS_Store
 Thumbs.db
+=======
+# Ignore the `build/` directory in the package root.
+/build
+>>>>>>> 41921bf92b9ea94c55fd02bdff37c7f1054b3c37
