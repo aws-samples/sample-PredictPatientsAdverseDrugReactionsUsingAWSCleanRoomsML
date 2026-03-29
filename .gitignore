@@ -1,3 +1,6 @@
+# Kiro IDE files — not part of the project
+.kiro/
+
 # FSI reference file — kept locally but not pushed to git
 README-FSI.md
 
