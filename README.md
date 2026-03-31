@@ -213,8 +213,54 @@ https://eu-north-1.quicksight.aws.amazon.com/sn/dashboards/cleanrooms-ml-hcls-ad
 
 ## Architecture Diagram
 
+```mermaid
+flowchart TB
+    subgraph S3_Source["Amazon S3 — Source Data"]
+        A["Pharma Company Drug Exposure CSV"]
+        B["Health Insurer Outcomes CSV"]
+    end
 
-## Undeploy Resources
+    subgraph Glue["AWS Glue Data Catalog"]
+        GA["pharma_drug_exposure"]
+        GB["insurer_outcomes"]
+    end
+
+    subgraph ECR["Amazon ECR — Container Images"]
+        TI["Training Image\n(GradientBoosting + sklearn)"]
+        II["Inference Image\n(SageMaker PyTorch base)"]
+    end
+
+    subgraph CR["AWS Clean Rooms — Collaboration"]
+        CT["Configured Tables\n+ Analysis Rules"]
+        CRML["AWS Clean Rooms ML"]
+        TJ["Training Job"]
+        IJ["Inference Job"]
+
+        CT -->|"JOIN on patient_id"| CRML
+        CRML --> TJ
+        CRML --> IJ
+        TJ -->|"model.joblib"| IJ
+    end
+
+    subgraph S3_Output["Amazon S3 — Results"]
+        OUT["adr_propensity_score\npredicted_adr\n+ contextual columns"]
+    end
+
+    subgraph Dashboard["Amazon QuickSight — Dashboard"]
+        ATH["AWS Glue + Athena\n(adr_inference_output table)"]
+        QS["4-Sheet Dashboard\nScore Distribution - Risk Breakdown\nPatient & Drug Analysis - Business Impact"]
+        ATH --> QS
+    end
+
+    A --> GA
+    B --> GB
+    GA --> CT
+    GB --> CT
+    TI -.->|"pulled by"| TJ
+    II -.->|"pulled by"| IJ
+    IJ --> OUT
+    OUT --> ATH
+```
 
 To remove all AWS resources created by this demo:
 
