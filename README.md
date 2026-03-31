@@ -12,23 +12,28 @@ This repo is a sample to quickly get started with AWS Clean Rooms Custom ML mode
 
 ---
 
+
 ## Table of Contents
 
 - [Use Case: Cross-Party Adverse Drug Reaction Propensity Scoring](#use-case-cross-party-adverse-drug-reaction-propensity-scoring)
-- [Pre-Processing: Unstructured Data Extraction](#pre-processing-unstructured-data-extraction)
-- [Data Overview](#data-overview)
-- [Feature Engineering](#feature-engineering)
-- [Analysis & Model Training](#analysis--model-training)
-- [Results](#results)
-- [Architecture Diagram](#architecture-diagram)
 - [End-to-End Setup Guide](#end-to-end-setup-guide)
-- [Optional: Local Testing](#optional-local-testing)
-- [Optional: SageMaker Direct Training](#optional-sagemaker-direct-training)
+- [Architecture Diagram](#architecture-diagram)
 - [Undeploy Resources](#undeploy-resources)
-- [Project Structure](#project-structure)
-- [License](#license)
+- [Dataset Overview](#dataset-overview)
+  - [Pre-Processing: Unstructured Data Extraction](#pre-processing-unstructured-data-extraction)
+  - [Data Overview](#data-overview)
+  - [Feature Engineering](#feature-engineering)
+  - [Analysis & Model Training](#analysis--model-training)
+  - [Results](#results)
+- [Appendix](#appendix)
+  - [Optional Step: Local Testing](#optional-step-local-testing)
+  - [Optional Step: SageMaker Direct Training](#optional-step-sagemaker-direct-training)
+  - [Optional Step: Local Docker Image Building](#optional-step-local-docker-image-building)
+  - [Project Structure](#project-structure)
+  - [License](#license)
 
----
+
+## Use Case: Cross-Party Adverse Drug Reaction Propensity Scoring
 
 **Scenario:** A pharma company (Party A) and a health insurer (Party B) want to collaborate on predicting which patients are most likely to experience a serious adverse drug reaction, based on combined drug exposure and real-world outcomes signals. Neither party can share raw data due to regulatory constraints (HIPAA, GDPR, data use agreements, and commercial sensitivity).
 
@@ -40,281 +45,6 @@ This repo is a sample to quickly get started with AWS Clean Rooms Custom ML mode
 
 ---
 
-
-## Pre-Processing: Unstructured Data Extraction
-
-Both parties hold valuable information locked in unstructured text. Before contributing data to the Clean Rooms collaboration, each party runs an NLP pre-processing step using AWS services to extract structured features from their unstructured sources. **This pre-processing step is a prerequisite for the demo and is out of scope of the Clean Rooms ML workflow itself.**
-
-### Party A — Pharma Company: Spontaneous ADR Report Narratives
-
-The pharma company receives spontaneous adverse event reports (MedWatch / CIOMS forms) as free-text narratives from patients and physicians. These describe what happened, when, what the patient was taking, and what symptoms appeared.
-
-**Tool:** [Amazon Comprehend Medical](https://aws.amazon.com/comprehend/medical/) — a HIPAA-eligible NLP service that extracts medical conditions, medications, dosages, symptoms, and temporal expressions from clinical text.
-
-Structured features extracted from report narratives:
-- `reported_symptom_count` — number of distinct symptom entities detected
-- `symptom_severity_flag` — 1 if terms like "severe", "life-threatening", or "hospitalized" are detected
-- `time_to_onset_days` — days from drug start to symptom onset, extracted from temporal expressions
-- `concomitant_drug_count_reported` — number of other drugs mentioned in the report
-- `prior_adr_narrative_flag` — 1 if prior reactions to this drug class are mentioned
-
-### Party B — Health Insurer: Clinical Notes and Patient Conversations
-
-The health insurer holds post-visit clinical notes, discharge summaries, and recordings of patient-clinician consultations. These contain real-world ADR signals that never make it into structured claims fields — a note saying "patient presented with elevated liver enzymes, currently on [drug X]" is a pharmacovigilance signal invisible to the pharma company.
-
-**Tools:**
-- [Amazon Comprehend Medical](https://aws.amazon.com/comprehend/medical/) — processes written clinical notes and discharge summaries to extract symptoms, diagnoses, medications, and lab findings with negation detection (distinguishing "no chest pain" from "chest pain")
-- [AWS HealthScribe](https://aws.amazon.com/healthscribe/) — processes recorded patient-clinician conversations to extract chief complaints, structured medical terms, and assessment/plan sections
-
-Structured features extracted from clinical notes and conversations:
-- `symptom_mention_count` — symptom entities extracted from clinical notes
-- `drug_symptom_co_mention` — 1 if the monitored drug and a symptom appear in the same note
-- `negated_symptom_count` — symptoms explicitly negated (reduces false positives)
-- `lab_abnormality_mentioned` — 1 if abnormal lab values are mentioned in note text
-- `chief_complaint_adr_flag` — 1 if chief complaint (from HealthScribe) matches known ADR terms for this drug class
-
----
-
-## Data Overview
-
-The demo uses two synthetic datasets generated by `data/generate_synthetic_data.py`. The data simulates a realistic scenario where drug exposure signals from the pharma company and real-world outcome signals from the insurer are independently predictive but neither is sufficient alone.
-
-### Population
-
-| Metric | Value |
-|--------|-------|
-| Total unique patients | 50,000 |
-| Shared patients (in both datasets) | 40,000 (80%) |
-| Pharma-only patients | 5,000 (10%) |
-| Insurer-only patients | 5,000 (10%) |
-| Date range | Jan 1 – Jun 30, 2025 |
-
-### Party A — Pharma Company: Drug Exposure & Risk Profile Data
-
-**~101,000 rows** — each row represents one patient's exposure record for a specific drug.
-
-| Column | Type | Source | Description |
-|--------|------|--------|-------------|
-| patient_id | string | structured | Unique patient identifier (join key) |
-| drug_id | string | structured | Drug being monitored |
-| drug_class | string | structured | Therapeutic class (e.g., biologic, NSAID, statin, chemotherapy) |
-| dose_mg | float | structured | Prescribed daily dose in mg |
-| treatment_duration_days | int | structured | Days on drug at observation date |
-| therapy_line | int | structured | Line of therapy (1 = first-line, etc.) |
-| known_risk_score | float | structured | Risk score derived from clinical trial safety data (0–1) |
-| black_box_warning | int | structured | 1 if drug carries an FDA black box warning |
-| patient_age | int | structured | Patient age at treatment start |
-| indication_severity | float | structured | Severity of the underlying condition being treated (0–1) |
-| reported_symptom_count | int | **Comprehend Medical** | Distinct symptoms extracted from spontaneous ADR report narratives |
-| symptom_severity_flag | int | **Comprehend Medical** | 1 if severe/life-threatening terms detected in report text |
-| time_to_onset_days | int | **Comprehend Medical** | Days from drug start to symptom onset (from report narrative) |
-| concomitant_drug_count_reported | int | **Comprehend Medical** | Other drugs mentioned in spontaneous reports |
-| prior_adr_narrative_flag | int | **Comprehend Medical** | 1 if prior reactions to this drug class mentioned in report text |
-| observation_date | date | structured | Date of the observation record |
-
-### Party B — Health Insurer: Real-World Outcomes & Claims Data
-
-**~113,000 rows** — each row represents one patient's outcomes record for a specific drug.
-
-| Column | Type | Source | Description |
-|--------|------|--------|-------------|
-| patient_id | string | structured | Unique patient identifier (join key) |
-| drug_id | string | structured | Drug identifier |
-| er_visits_post_start | int | structured | ER visits in the 90 days after drug start |
-| hospitalizations_post_start | int | structured | Hospitalizations in the 90 days after drug start |
-| days_to_first_er_visit | int | structured | Days from drug start to first ER visit (999 if none) |
-| drug_discontinuation | int | structured | 1 if patient stopped the drug within observation window |
-| days_to_discontinuation | int | structured | Days until discontinuation (999 if still on drug) |
-| num_concomitant_meds | int | structured | Number of other drugs taken concurrently |
-| high_risk_combo | int | structured | 1 if patient is on a known high-risk drug combination |
-| lab_abnormality_count | int | structured | Number of out-of-range lab results in 90 days post-start |
-| comorbidity_index | float | structured | Charlson Comorbidity Index score |
-| prior_hospitalization | int | structured | 1 if hospitalized in 12 months before drug start |
-| symptom_mention_count | int | **Comprehend Medical** | Symptom entities extracted from post-visit clinical notes |
-| drug_symptom_co_mention | int | **Comprehend Medical** | 1 if monitored drug and a symptom co-occur in the same note |
-| negated_symptom_count | int | **Comprehend Medical** | Symptoms explicitly negated in notes (reduces false positives) |
-| lab_abnormality_mentioned | int | **Comprehend Medical** | 1 if abnormal lab values mentioned in note text |
-| chief_complaint_adr_flag | int | **HealthScribe** | 1 if chief complaint matches known ADR terms for this drug class |
-| has_adr | int | structured | Ground-truth label: 1 = confirmed ADR, 0 = no ADR |
-
----
-
-## Feature Engineering
-
-**Clean Rooms Mode:** When Clean Rooms ML runs training, it joins the two tables on `patient_id` and sends a single pre-joined, headerless CSV to the training container. The `patient_id` column is excluded (it's the join key). The training script detects this format and applies column names automatically.
-
-### Features Used (Clean Rooms Mode)
-
-| Feature | Source | Description |
-|---------|--------|-------------|
-| dose_mg | Pharma company | Prescribed daily dose |
-| treatment_duration_days | Pharma company | Days on drug |
-| therapy_line | Pharma company | Line of therapy |
-| known_risk_score | Pharma company | Clinical trial safety risk score (0–1) |
-| black_box_warning | Pharma company | 1 if FDA black box warning |
-| patient_age | Pharma company | Patient age at treatment start |
-| indication_severity | Pharma company | Severity of underlying condition (0–1) |
-| reported_symptom_count | Pharma company / Comprehend Medical | Symptoms from spontaneous reports |
-| symptom_severity_flag | Pharma company / Comprehend Medical | 1 if severe terms in report |
-| time_to_onset_days | Pharma company / Comprehend Medical | Days to symptom onset from report |
-| concomitant_drug_count_reported | Pharma company / Comprehend Medical | Other drugs in spontaneous reports |
-| prior_adr_narrative_flag | Pharma company / Comprehend Medical | 1 if prior reactions mentioned |
-| er_visits_post_start | Health insurer | ER visits post drug start |
-| hospitalizations_post_start | Health insurer | Hospitalizations post drug start |
-| days_to_first_er_visit | Health insurer | Days to first ER visit |
-| drug_discontinuation | Health insurer | 1 if drug stopped |
-| days_to_discontinuation | Health insurer | Days until discontinuation |
-| num_concomitant_meds | Health insurer | Concurrent medications |
-| high_risk_combo | Health insurer | 1 if high-risk drug combination |
-| lab_abnormality_count | Health insurer | Out-of-range lab results |
-| comorbidity_index | Health insurer | Charlson Comorbidity Index |
-| prior_hospitalization | Health insurer | 1 if hospitalized before drug start |
-| symptom_mention_count | Health insurer / Comprehend Medical | Symptoms in clinical notes |
-| drug_symptom_co_mention | Health insurer / Comprehend Medical | 1 if drug + symptom co-occur in note |
-| negated_symptom_count | Health insurer / Comprehend Medical | Negated symptoms in notes |
-| lab_abnormality_mentioned | Health insurer / Comprehend Medical | 1 if abnormal labs in note text |
-| chief_complaint_adr_flag | Health insurer / HealthScribe | 1 if chief complaint matches ADR terms |
-| dose_duration_interaction | Derived | dose_mg × treatment_duration_days / 1000 |
-| comorbidity_drug_burden | Derived | comorbidity_index × num_concomitant_meds |
-
-**Target variable:** `has_adr` (1 = confirmed ADR, 0 = no ADR)
-
----
-
-## Analysis & Model Training
-
-### Model Architecture
-
-| Parameter | Value |
-|-----------|-------|
-| Algorithm | Gradient Boosting Classifier (sklearn) |
-| Train/Test Split | 80% / 20%, stratified by target |
-| n_estimators | 100 |
-| max_depth | 5 |
-| learning_rate | 0.1 |
-| Random seed | 42 |
-
-### Training Flow in Clean Rooms ML
-
-1. Clean Rooms joins the pharma company and health insurer tables on `patient_id` inside the collaboration
-2. The pre-joined data (headerless CSV, no `patient_id` column) is sent to the training container
-3. The training script detects the headerless format and applies column names
-4. Derived features (`dose_duration_interaction`, `comorbidity_drug_burden`) are computed
-5. GradientBoostingClassifier is trained on the 29 features with `has_adr` as target
-6. Model artifacts (`model.joblib`, `feature_columns.json`) are saved to `/opt/ml/model`
-7. Metrics (accuracy, precision, recall, F1, ROC-AUC) are saved to `/opt/ml/output/data`
-
-### Inference Flow in Clean Rooms ML
-
-1. Clean Rooms sends the same pre-joined data to the inference container
-2. The inference handler loads the trained model and feature column list
-3. Derived features are computed on the fly (same as training)
-4. Model predicts `adr_propensity_score` (0–1) and `predicted_adr` (0/1) for each record
-5. Results are written as CSV to the configured output S3 bucket
-
----
-
-## Results
-
-### Output Format
-
-| Column | Type | Description |
-|--------|------|-------------|
-| adr_propensity_score | float (0–1) | Predicted probability of adverse drug reaction |
-| predicted_adr | int (0/1) | Binary prediction: 1 = likely ADR |
-
-### Interpreting the Results
-
-- `adr_propensity_score > 0.25` → predicted as likely ADR (`predicted_adr = 1`)
-- Risk segments: High (score > 0.35), Medium (0.15–0.35), Low (< 0.15) — thresholds calibrated to the actual score distribution
-- Higher scores indicate stronger combined signals from drug exposure profile and real-world outcomes
-- The pharma company can use these scores to prioritize patients for enhanced safety monitoring and proactive outreach
-- The health insurer can flag high-risk patients for clinical review before a serious event occurs
-
-### Key Metrics (from training evaluation)
-
-| Metric | Both Parties (Clean Rooms) | Pharma Only | Insurer Only |
-|--------|---------------------------|-------------|--------------|
-| Accuracy | ~83% | ~78% | ~78% |
-| Precision | ~73% | ~64% | ~63% |
-| Recall | ~47% | ~25% | ~32% |
-| F1 Score | ~0.57 | ~0.36 | ~0.43 |
-| ROC-AUC | ~0.87 | ~0.77 | ~0.80 |
-
-### Collaboration Value
-
-- Combining data from both parties yields a **~10-point ROC-AUC improvement** over either party alone
-- F1 score improves by ~58% compared to pharma-only predictions (0.57 vs 0.36)
-- Feature importance is distributed across both pharma and insurer features, with NLP-extracted signals from both sides contributing meaningfully — no single feature exceeds ~12% importance
-
-### Dashboard Screenshots
-
-**Score Distribution** — ADR score histogram by decile, risk segment donut, lift table, ADR vs non-ADR comparison
-
-![Score Distribution](img/dashboard-score-distribution.png)
-
-**Risk Breakdown** — avg ADR score by drug class and therapy line, comorbidity scatter, ER visits by segment
-
-![Risk Breakdown](img/dashboard-risk-breakdown.png)
-
-**Business Impact** — ADR patients captured by decile, clinical risk exposure by segment, drug class × age heatmap
-
-![Business Impact](img/dashboard-business-impact.png)
-
----
-
-## Architecture Diagram
-
-```mermaid
-flowchart TB
-    subgraph S3_Source["Amazon S3 — Source Data"]
-        A["Pharma Company Drug Exposure CSV"]
-        B["Health Insurer Outcomes CSV"]
-    end
-
-    subgraph Glue["AWS Glue Data Catalog"]
-        GA["pharma_drug_exposure"]
-        GB["insurer_outcomes"]
-    end
-
-    subgraph ECR["Amazon ECR — Container Images"]
-        TI["Training Image\n(GradientBoosting + sklearn)"]
-        II["Inference Image\n(SageMaker PyTorch base)"]
-    end
-
-    subgraph CR["AWS Clean Rooms — Collaboration"]
-        CT["Configured Tables\n+ Analysis Rules"]
-        CRML["AWS Clean Rooms ML"]
-        TJ["Training Job"]
-        IJ["Inference Job"]
-
-        CT -->|"JOIN on patient_id"| CRML
-        CRML --> TJ
-        CRML --> IJ
-        TJ -->|"model.joblib"| IJ
-    end
-
-    subgraph S3_Output["Amazon S3 — Results"]
-        OUT["adr_propensity_score\npredicted_adr\n+ contextual columns"]
-    end
-
-    subgraph Dashboard["Amazon QuickSight — Dashboard"]
-        ATH["AWS Glue + Athena\n(adr_inference_output table)"]
-        QS["4-Sheet Dashboard\nScore Distribution · Risk Breakdown\nPatient & Drug Analysis · Business Impact"]
-        ATH --> QS
-    end
-
-    A --> GA
-    B --> GB
-    GA --> CT
-    GB --> CT
-    TI -.->|"pulled by"| TJ
-    II -.->|"pulled by"| IJ
-    IJ --> OUT
-    OUT --> ATH
-```
-
----
 
 ## End-to-End Setup Guide
 
@@ -386,20 +116,11 @@ python scripts/upload_data.py
 
 **Scripts:** `scripts/codebuild_containers.py` + `buildspec.yml` (or `scripts/build_and_push.py` for local Docker)
 
-**Option A — via CodeBuild (no local Docker needed):**
+**Via CodeBuild (no local Docker needed):**
 ```bash
 python scripts/codebuild_containers.py
 ```
 
-**Option B — via local Docker:**
-```bash
-python scripts/build_and_push.py
-```
-
-- Creates ECR repositories for training and inference images
-- **Training container** (`containers/training/`): SageMaker PyTorch training base image with sklearn, pandas, numpy, joblib
-- **Inference container** (`containers/inference/`): SageMaker PyTorch inference base image (`pytorch-inference:2.3.0-cpu-py311-ubuntu20.04-sagemaker`) — this specific base image is required by AWS Clean Rooms ML; using a generic Python image causes `AlgorithmError` failures
-- Both images are pushed to ECR in your configured region
 
 ### Step 4: Set Up Clean Rooms Infrastructure
 
@@ -470,21 +191,28 @@ https://eu-north-1.quicksight.aws.amazon.com/sn/dashboards/cleanrooms-ml-hcls-ad
 > aws s3 cp s3://cleanrooms-ml-hcls-adr-output-<ACCOUNT_ID>-<RUN_ID>/cleanrooms-ml-output/ ./results/ --recursive --region <REGION>
 > ```
 
+#### Dashboard Screenshots
+
+**Score Distribution** — ADR score histogram by decile, risk segment donut, lift table, ADR vs non-ADR comparison
+
+![Score Distribution](img/dashboard-score-distribution.png)
+
+
+**Risk Breakdown** — avg ADR score by drug class and therapy line, comorbidity scatter, ER visits by segment
+
+![Risk Breakdown](img/dashboard-risk-breakdown.png)
+
+
+**Business Impact** — ADR patients captured by decile, clinical risk exposure by segment, drug class × age heatmap
+
+![Business Impact](img/dashboard-business-impact.png)
+
+
 ---
 
-## Optional: Local Testing
 
-```bash
-python scripts/test_training_local.py
-```
+## Architecture Diagram
 
-## Optional: SageMaker Direct Training
-
-```bash
-python scripts/sagemaker_training_job.py
-```
-
----
 
 ## Undeploy Resources
 
@@ -507,7 +235,254 @@ The script prompts for confirmation before deleting anything. It removes all res
 
 ---
 
-## Project Structure
+
+## Dataset Overview
+
+
+### Pre-Processing: Unstructured Data Extraction
+
+Both parties hold valuable information locked in unstructured text. Before contributing data to the Clean Rooms collaboration, each party runs an NLP pre-processing step using AWS services to extract structured features from their unstructured sources. **This pre-processing step is a prerequisite for the demo and is out of scope of the Clean Rooms ML workflow itself.**
+
+### Party A — Pharma Company: Spontaneous ADR Report Narratives
+
+The pharma company receives spontaneous adverse event reports (MedWatch / CIOMS forms) as free-text narratives from patients and physicians. These describe what happened, when, what the patient was taking, and what symptoms appeared.
+
+**Tool:** [Amazon Comprehend Medical](https://aws.amazon.com/comprehend/medical/) — a HIPAA-eligible NLP service that extracts medical conditions, medications, dosages, symptoms, and temporal expressions from clinical text.
+
+Structured features extracted from report narratives:
+- `reported_symptom_count` — number of distinct symptom entities detected
+- `symptom_severity_flag` — 1 if terms like "severe", "life-threatening", or "hospitalized" are detected
+- `time_to_onset_days` — days from drug start to symptom onset, extracted from temporal expressions
+- `concomitant_drug_count_reported` — number of other drugs mentioned in the report
+- `prior_adr_narrative_flag` — 1 if prior reactions to this drug class are mentioned
+
+### Party B — Health Insurer: Clinical Notes and Patient Conversations
+
+The health insurer holds post-visit clinical notes, discharge summaries, and recordings of patient-clinician consultations. These contain real-world ADR signals that never make it into structured claims fields — a note saying "patient presented with elevated liver enzymes, currently on [drug X]" is a pharmacovigilance signal invisible to the pharma company.
+
+**Tools:**
+- [Amazon Comprehend Medical](https://aws.amazon.com/comprehend/medical/) — processes written clinical notes and discharge summaries to extract symptoms, diagnoses, medications, and lab findings with negation detection (distinguishing "no chest pain" from "chest pain")
+- [AWS HealthScribe](https://aws.amazon.com/healthscribe/) — processes recorded patient-clinician conversations to extract chief complaints, structured medical terms, and assessment/plan sections
+
+Structured features extracted from clinical notes and conversations:
+- `symptom_mention_count` — symptom entities extracted from clinical notes
+- `drug_symptom_co_mention` — 1 if the monitored drug and a symptom appear in the same note
+- `negated_symptom_count` — symptoms explicitly negated (reduces false positives)
+- `lab_abnormality_mentioned` — 1 if abnormal lab values are mentioned in note text
+- `chief_complaint_adr_flag` — 1 if chief complaint (from HealthScribe) matches known ADR terms for this drug class
+
+---
+
+
+### Data Overview
+
+The demo uses two synthetic datasets generated by `data/generate_synthetic_data.py`. The data simulates a realistic scenario where drug exposure signals from the pharma company and real-world outcome signals from the insurer are independently predictive but neither is sufficient alone.
+
+### Population
+
+| Metric | Value |
+|--------|-------|
+| Total unique patients | 50,000 |
+| Shared patients (in both datasets) | 40,000 (80%) |
+| Pharma-only patients | 5,000 (10%) |
+| Insurer-only patients | 5,000 (10%) |
+| Date range | Jan 1 – Jun 30, 2025 |
+
+### Party A — Pharma Company: Drug Exposure & Risk Profile Data
+
+**~101,000 rows** — each row represents one patient's exposure record for a specific drug.
+
+| Column | Type | Source | Description |
+|--------|------|--------|-------------|
+| patient_id | string | structured | Unique patient identifier (join key) |
+| drug_id | string | structured | Drug being monitored |
+| drug_class | string | structured | Therapeutic class (e.g., biologic, NSAID, statin, chemotherapy) |
+| dose_mg | float | structured | Prescribed daily dose in mg |
+| treatment_duration_days | int | structured | Days on drug at observation date |
+| therapy_line | int | structured | Line of therapy (1 = first-line, etc.) |
+| known_risk_score | float | structured | Risk score derived from clinical trial safety data (0–1) |
+| black_box_warning | int | structured | 1 if drug carries an FDA black box warning |
+| patient_age | int | structured | Patient age at treatment start |
+| indication_severity | float | structured | Severity of the underlying condition being treated (0–1) |
+| reported_symptom_count | int | **Comprehend Medical** | Distinct symptoms extracted from spontaneous ADR report narratives |
+| symptom_severity_flag | int | **Comprehend Medical** | 1 if severe/life-threatening terms detected in report text |
+| time_to_onset_days | int | **Comprehend Medical** | Days from drug start to symptom onset (from report narrative) |
+| concomitant_drug_count_reported | int | **Comprehend Medical** | Other drugs mentioned in spontaneous reports |
+| prior_adr_narrative_flag | int | **Comprehend Medical** | 1 if prior reactions to this drug class mentioned in report text |
+| observation_date | date | structured | Date of the observation record |
+
+### Party B — Health Insurer: Real-World Outcomes & Claims Data
+
+**~113,000 rows** — each row represents one patient's outcomes record for a specific drug.
+
+| Column | Type | Source | Description |
+|--------|------|--------|-------------|
+| patient_id | string | structured | Unique patient identifier (join key) |
+| drug_id | string | structured | Drug identifier |
+| er_visits_post_start | int | structured | ER visits in the 90 days after drug start |
+| hospitalizations_post_start | int | structured | Hospitalizations in the 90 days after drug start |
+| days_to_first_er_visit | int | structured | Days from drug start to first ER visit (999 if none) |
+| drug_discontinuation | int | structured | 1 if patient stopped the drug within observation window |
+| days_to_discontinuation | int | structured | Days until discontinuation (999 if still on drug) |
+| num_concomitant_meds | int | structured | Number of other drugs taken concurrently |
+| high_risk_combo | int | structured | 1 if patient is on a known high-risk drug combination |
+| lab_abnormality_count | int | structured | Number of out-of-range lab results in 90 days post-start |
+| comorbidity_index | float | structured | Charlson Comorbidity Index score |
+| prior_hospitalization | int | structured | 1 if hospitalized in 12 months before drug start |
+| symptom_mention_count | int | **Comprehend Medical** | Symptom entities extracted from post-visit clinical notes |
+| drug_symptom_co_mention | int | **Comprehend Medical** | 1 if monitored drug and a symptom co-occur in the same note |
+| negated_symptom_count | int | **Comprehend Medical** | Symptoms explicitly negated in notes (reduces false positives) |
+| lab_abnormality_mentioned | int | **Comprehend Medical** | 1 if abnormal lab values mentioned in note text |
+| chief_complaint_adr_flag | int | **HealthScribe** | 1 if chief complaint matches known ADR terms for this drug class |
+| has_adr | int | structured | Ground-truth label: 1 = confirmed ADR, 0 = no ADR |
+
+---
+
+
+### Feature Engineering
+
+**Clean Rooms Mode:** When Clean Rooms ML runs training, it joins the two tables on `patient_id` and sends a single pre-joined, headerless CSV to the training container. The `patient_id` column is excluded (it's the join key). The training script detects this format and applies column names automatically.
+
+### Features Used (Clean Rooms Mode)
+
+| Feature | Source | Description |
+|---------|--------|-------------|
+| dose_mg | Pharma company | Prescribed daily dose |
+| treatment_duration_days | Pharma company | Days on drug |
+| therapy_line | Pharma company | Line of therapy |
+| known_risk_score | Pharma company | Clinical trial safety risk score (0–1) |
+| black_box_warning | Pharma company | 1 if FDA black box warning |
+| patient_age | Pharma company | Patient age at treatment start |
+| indication_severity | Pharma company | Severity of underlying condition (0–1) |
+| reported_symptom_count | Pharma company / Comprehend Medical | Symptoms from spontaneous reports |
+| symptom_severity_flag | Pharma company / Comprehend Medical | 1 if severe terms in report |
+| time_to_onset_days | Pharma company / Comprehend Medical | Days to symptom onset from report |
+| concomitant_drug_count_reported | Pharma company / Comprehend Medical | Other drugs in spontaneous reports |
+| prior_adr_narrative_flag | Pharma company / Comprehend Medical | 1 if prior reactions mentioned |
+| er_visits_post_start | Health insurer | ER visits post drug start |
+| hospitalizations_post_start | Health insurer | Hospitalizations post drug start |
+| days_to_first_er_visit | Health insurer | Days to first ER visit |
+| drug_discontinuation | Health insurer | 1 if drug stopped |
+| days_to_discontinuation | Health insurer | Days until discontinuation |
+| num_concomitant_meds | Health insurer | Concurrent medications |
+| high_risk_combo | Health insurer | 1 if high-risk drug combination |
+| lab_abnormality_count | Health insurer | Out-of-range lab results |
+| comorbidity_index | Health insurer | Charlson Comorbidity Index |
+| prior_hospitalization | Health insurer | 1 if hospitalized before drug start |
+| symptom_mention_count | Health insurer / Comprehend Medical | Symptoms in clinical notes |
+| drug_symptom_co_mention | Health insurer / Comprehend Medical | 1 if drug + symptom co-occur in note |
+| negated_symptom_count | Health insurer / Comprehend Medical | Negated symptoms in notes |
+| lab_abnormality_mentioned | Health insurer / Comprehend Medical | 1 if abnormal labs in note text |
+| chief_complaint_adr_flag | Health insurer / HealthScribe | 1 if chief complaint matches ADR terms |
+| dose_duration_interaction | Derived | dose_mg × treatment_duration_days / 1000 |
+| comorbidity_drug_burden | Derived | comorbidity_index × num_concomitant_meds |
+
+**Target variable:** `has_adr` (1 = confirmed ADR, 0 = no ADR)
+
+---
+
+
+### Analysis & Model Training
+
+### Model Architecture
+
+| Parameter | Value |
+|-----------|-------|
+| Algorithm | Gradient Boosting Classifier (sklearn) |
+| Train/Test Split | 80% / 20%, stratified by target |
+| n_estimators | 100 |
+| max_depth | 5 |
+| learning_rate | 0.1 |
+| Random seed | 42 |
+
+### Training Flow in Clean Rooms ML
+
+1. Clean Rooms joins the pharma company and health insurer tables on `patient_id` inside the collaboration
+2. The pre-joined data (headerless CSV, no `patient_id` column) is sent to the training container
+3. The training script detects the headerless format and applies column names
+4. Derived features (`dose_duration_interaction`, `comorbidity_drug_burden`) are computed
+5. GradientBoostingClassifier is trained on the 29 features with `has_adr` as target
+6. Model artifacts (`model.joblib`, `feature_columns.json`) are saved to `/opt/ml/model`
+7. Metrics (accuracy, precision, recall, F1, ROC-AUC) are saved to `/opt/ml/output/data`
+
+### Inference Flow in Clean Rooms ML
+
+1. Clean Rooms sends the same pre-joined data to the inference container
+2. The inference handler loads the trained model and feature column list
+3. Derived features are computed on the fly (same as training)
+4. Model predicts `adr_propensity_score` (0–1) and `predicted_adr` (0/1) for each record
+5. Results are written as CSV to the configured output S3 bucket
+
+---
+
+
+### Results
+
+### Output Format
+
+| Column | Type | Description |
+|--------|------|-------------|
+| adr_propensity_score | float (0–1) | Predicted probability of adverse drug reaction |
+| predicted_adr | int (0/1) | Binary prediction: 1 = likely ADR |
+
+### Interpreting the Results
+
+- `adr_propensity_score > 0.25` → predicted as likely ADR (`predicted_adr = 1`)
+- Risk segments: High (score > 0.35), Medium (0.15–0.35), Low (< 0.15) — thresholds calibrated to the actual score distribution
+- Higher scores indicate stronger combined signals from drug exposure profile and real-world outcomes
+- The pharma company can use these scores to prioritize patients for enhanced safety monitoring and proactive outreach
+- The health insurer can flag high-risk patients for clinical review before a serious event occurs
+
+### Key Metrics (from training evaluation)
+
+| Metric | Both Parties (Clean Rooms) | Pharma Only | Insurer Only |
+|--------|---------------------------|-------------|--------------|
+| Accuracy | ~83% | ~78% | ~78% |
+| Precision | ~73% | ~64% | ~63% |
+| Recall | ~47% | ~25% | ~32% |
+| F1 Score | ~0.57 | ~0.36 | ~0.43 |
+| ROC-AUC | ~0.87 | ~0.77 | ~0.80 |
+
+### Collaboration Value
+
+- Combining data from both parties yields a **~10-point ROC-AUC improvement** over either party alone
+- F1 score improves by ~58% compared to pharma-only predictions (0.57 vs 0.36)
+- Feature importance is distributed across both pharma and insurer features, with NLP-extracted signals from both sides contributing meaningfully — no single feature exceeds ~12% importance
+
+---
+
+
+## Appendix
+
+
+### Optional Step: Local Testing
+
+This script tests the training pipeline locally without any AWS resources. It simulates the SageMaker directory structure, copies the generated CSV files to a local test directory, runs `train.py` directly, and prints the model metrics and feature importance. Use this to validate data generation and model logic before deploying to AWS.
+
+```bash
+python scripts/test_training_local.py
+```
+
+
+### Optional Step: SageMaker Direct Training
+
+This script submits a training job directly to Amazon SageMaker AI, bypassing the Clean Rooms ML workflow. It packages `train.py`, uploads it to S3, and launches a SageMaker training job using the scikit-learn managed container. Use this to iterate on the model independently of the Clean Rooms collaboration setup.
+
+```bash
+python scripts/sagemaker_training_job.py
+```
+
+
+### Optional Step: Local Docker Image Building
+
+This script builds and pushes the training and inference Docker containers using a local Docker installation, as an alternative to the CodeBuild approach in Step 3. Use this if you have Docker installed locally and prefer not to use CodeBuild. It authenticates with ECR, builds both images with the correct SageMaker base images, and pushes them to your ECR repositories.
+
+```bash
+python scripts/build_and_push.py
+```
+
+
+### Project Structure
 
 ```
 config.py                          ← SET YOUR ACCOUNT + REGION HERE
@@ -543,6 +518,7 @@ img/
 
 ---
 
-## License
+
+### License
 
 This library is licensed under the MIT-0 License.
