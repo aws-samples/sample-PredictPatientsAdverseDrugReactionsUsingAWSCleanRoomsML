@@ -48,6 +48,8 @@ This repo is a sample to quickly get started with AWS Clean Rooms Custom ML mode
 
 ## End-to-End Setup Guide
 
+This section provides and explains the 6 commands required to deploy the whole demo. All the commands are idempotent — you can safely re-run any of them, even if a previous run was interrupted. Each command creates the required resources, and if resources have already been created, it simply skips to the next resource to be created.
+
 ### Approximate Timing
 
 | Step | Description | Time |
