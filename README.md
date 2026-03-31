@@ -8,9 +8,27 @@ The pharma company contributes **drug exposure and known risk signals** (dosage,
 
 The output is a ranked list of patients by ADR propensity score, visualized in an Amazon QuickSight dashboard that shows which risk segments, drug classes, and signal combinations drive the highest ADR likelihood — enabling earlier safety interventions, proactive pharmacovigilance, and real-world evidence for regulatory submissions.
 
+This repo is a sample to quickly get started with AWS Clean Rooms Custom ML models for HCLS use cases; it is not meant for production usage as-is.
+
 ---
 
-## Use Case: Cross-Party Adverse Drug Reaction Propensity Scoring
+## Table of Contents
+
+- [Use Case: Cross-Party Adverse Drug Reaction Propensity Scoring](#use-case-cross-party-adverse-drug-reaction-propensity-scoring)
+- [Pre-Processing: Unstructured Data Extraction](#pre-processing-unstructured-data-extraction)
+- [Data Overview](#data-overview)
+- [Feature Engineering](#feature-engineering)
+- [Analysis & Model Training](#analysis--model-training)
+- [Results](#results)
+- [Architecture Diagram](#architecture-diagram)
+- [End-to-End Setup Guide](#end-to-end-setup-guide)
+- [Optional: Local Testing](#optional-local-testing)
+- [Optional: SageMaker Direct Training](#optional-sagemaker-direct-training)
+- [Undeploy Resources](#undeploy-resources)
+- [Project Structure](#project-structure)
+- [License](#license)
+
+---
 
 **Scenario:** A pharma company (Party A) and a health insurer (Party B) want to collaborate on predicting which patients are most likely to experience a serious adverse drug reaction, based on combined drug exposure and real-world outcomes signals. Neither party can share raw data due to regulatory constraints (HIPAA, GDPR, data use agreements, and commercial sensitivity).
 
