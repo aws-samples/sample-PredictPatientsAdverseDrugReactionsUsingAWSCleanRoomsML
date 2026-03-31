@@ -262,6 +262,9 @@ flowchart TB
     OUT --> ATH
 ```
 
+
+## Undeploy Resources
+
 To remove all AWS resources created by this demo:
 
 ```bash
